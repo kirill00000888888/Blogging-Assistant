@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Советник по блогу (прототип)</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <header class="header">
+        <h1>Советник по блогу</h1>
+        <p class="subtitle">
+          Локальный прототип чата в браузере. Позже подключим Telegram-бота.
+        </p>
+      </header>
+
+      <main class="chat-panel">
+        <div id="log" class="log" aria-live="polite"></div>
+        <form id="form" class="composer">
+          <textarea
+            id="input"
+            rows="3"
+            placeholder="Спросите про тему, структуру поста, контент-план, аудиторию…"
+            required
+          ></textarea>
+          <div class="composer-actions">
+            <button type="button" id="clear" class="btn secondary">Очистить</button>
+            <button type="submit" id="send" class="btn primary">Отправить</button>
+          </div>
+        </form>
+      </main>
+
+      <footer class="footer">
+        <span id="status" class="status"></span>
+      </footer>
+    </div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
