@@ -22,15 +22,36 @@ const BOT_TOKEN =
 
 /** HF can take up to HF_TIMEOUT_MS; Telegraf defaults to 90s and kills the handler sooner. */
 function telegrafHandlerTimeoutMs() {
-  const hfMs =
-    Number(process.env.HF_TIMEOUT_MS) > 0
-      ? Number(process.env.HF_TIMEOUT_MS)
-      : 120_000;
+  const hfMs = telegramHfTimeoutMs();
   const extra =
     Number(process.env.TG_HANDLER_EXTRA_MS) > 0
       ? Number(process.env.TG_HANDLER_EXTRA_MS)
       : 120_000;
   return hfMs + extra;
+}
+
+function telegramHfTimeoutMs() {
+  if (Number(process.env.TG_HF_TIMEOUT_MS) > 0) {
+    return Number(process.env.TG_HF_TIMEOUT_MS);
+  }
+
+  const globalTimeout =
+    Number(process.env.HF_TIMEOUT_MS) > 0
+      ? Number(process.env.HF_TIMEOUT_MS)
+      : 120_000;
+  return Math.max(globalTimeout, 180_000);
+}
+
+function telegramHfMaxTokens() {
+  if (Number(process.env.TG_HF_MAX_TOKENS) > 0) {
+    return Number(process.env.TG_HF_MAX_TOKENS);
+  }
+
+  const globalMax =
+    Number(process.env.HF_MAX_TOKENS) > 0
+      ? Number(process.env.HF_MAX_TOKENS)
+      : 3072;
+  return Math.min(globalMax, 2048);
 }
 
 /** Команды в меню над полем ввода (⋮ или кнопка «Menu» в клиенте Telegram). */
@@ -71,7 +92,9 @@ const TELEGRAM_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 
 Форматируй ответы для Telegram: не используй Markdown-таблицы, HTML, звездочки для жирного текста и сложную разметку. Контент-планы пиши обычными списками: "День 1", затем пункты "Тип", "Тема", "Что публиковать", "CTA". Если пользователь просит подробный план, дай развернутый ответ, а не 2-3 строки.
 
-Для русских запросов используй только русские заголовки: "тон коммуникации" вместо "Tone of voice", "призыв к действию" или "CTA" вместо случайных английских формулировок. Не оставляй строку "Хук:" или "Боли:" пустой перед следующим разделом. Если делаешь нумерованные разделы, пиши 1, 2, 3, 4, а не каждый раз 1.`;
+Для русских запросов используй только русские заголовки: "тон коммуникации" вместо "Tone of voice", "призыв к действию" или "CTA" вместо случайных английских формулировок. Не оставляй строку "Хук:" или "Боли:" пустой перед следующим разделом. Если делаешь нумерованные разделы, пиши 1, 2, 3, 4, а не каждый раз 1.
+
+Для Telegram отвечай компактно: если пользователь не просит "подробно", уложись примерно в 1200-2500 знаков, дай самое полезное и в конце предложи написать "продолжи" для расширения.`;
 
 const sessions = new Map();
 
@@ -183,6 +206,19 @@ function normalizeTelegramReply(text) {
     .trim();
 }
 
+async function withTyping(ctx, run) {
+  await ctx.sendChatAction("typing");
+  const interval = setInterval(() => {
+    void ctx.sendChatAction("typing").catch(() => {});
+  }, 4500);
+
+  try {
+    return await run();
+  } finally {
+    clearInterval(interval);
+  }
+}
+
 /** Telegram message limit — split long replies */
 function splitTelegramChunks(text, maxLen = 4000) {
   if (text.length <= maxLen) return [text];
@@ -243,9 +279,12 @@ async function main() {
     history.push({ role: "user", content: text });
     trimSession(history);
 
-    await ctx.sendChatAction("typing");
-
-    const result = await hfCompleteNonStreaming(buildMessages(history));
+    const result = await withTyping(ctx, () =>
+      hfCompleteNonStreaming(buildMessages(history), {
+        maxTokens: telegramHfMaxTokens(),
+        timeoutMs: telegramHfTimeoutMs(),
+      }),
+    );
 
     if (!result.ok) {
       await ctx.reply(`Ошибка: ${result.error}`, mainReplyKeyboard());

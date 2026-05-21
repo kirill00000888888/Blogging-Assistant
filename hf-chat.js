@@ -241,7 +241,13 @@ function buildQualityRetryMessages(messages, issue) {
   ];
 }
 
-async function requestHfCompletion(payload, token, startedAt, label = "main") {
+async function requestHfCompletion(
+  payload,
+  token,
+  startedAt,
+  label = "main",
+  timeoutMs = getHfTimeoutMs(),
+) {
   const hfRes = await fetch(HF_CHAT_URL, {
     method: "POST",
     headers: {
@@ -249,7 +255,7 @@ async function requestHfCompletion(payload, token, startedAt, label = "main") {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(getHfTimeoutMs()),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   const text = await hfRes.text();
@@ -304,7 +310,7 @@ async function requestHfCompletion(payload, token, startedAt, label = "main") {
 /**
  * @param {Array<{role: string, content: string}>} messages — must include system as [0] if desired
  */
-export async function hfCompleteNonStreaming(messages) {
+export async function hfCompleteNonStreaming(messages, options = {}) {
   const token = getHfToken();
   if (!token) {
     return {
@@ -315,7 +321,10 @@ export async function hfCompleteNonStreaming(messages) {
   }
 
   const model = getHfModel();
-  const max_tokens = getHfMaxTokens();
+  const max_tokens =
+    Number(options.maxTokens) > 0 ? Number(options.maxTokens) : getHfMaxTokens();
+  const timeoutMs =
+    Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : getHfTimeoutMs();
   const payload = {
     model,
     messages,
@@ -325,7 +334,13 @@ export async function hfCompleteNonStreaming(messages) {
 
   const t0 = Date.now();
   try {
-    const firstResult = await requestHfCompletion(payload, token, t0);
+    const firstResult = await requestHfCompletion(
+      payload,
+      token,
+      t0,
+      "main",
+      timeoutMs,
+    );
     if (!firstResult.ok) return firstResult;
 
     const qualityIssue = getResponseQualityIssue(firstResult.content, messages);
@@ -343,6 +358,7 @@ export async function hfCompleteNonStreaming(messages) {
         token,
         t0,
         "quality-retry",
+        timeoutMs,
       );
       if (retryResult.ok) {
         const retryIssue = getResponseQualityIssue(retryResult.content, messages);
@@ -371,7 +387,9 @@ export async function hfCompleteNonStreaming(messages) {
       return {
         ok: false,
         error:
-          "Превышено время ожидания ответа Hugging Face. Повторите позже или смените HF_MODEL.",
+          `Hugging Face не успел ответить за ${Math.round(timeoutMs / 1000)} сек. ` +
+          "Это обычно очередь, перегруженная модель или слишком длинный ответ. " +
+          "Повторите позже, попросите короче или смените HF_MODEL.",
       };
     }
     console.error(`[hf-chat] error after ${ms}ms:`, err);
