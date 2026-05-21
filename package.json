@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "telegram": "node telegram-bot.js"
+    "telegram": "node telegram-bot.js",
+    "check": "node --check server.js && node --check hf-chat.js && node --check telegram-bot.js && node --check public/app.js"
   },
   "engines": {
     "node": ">=20"

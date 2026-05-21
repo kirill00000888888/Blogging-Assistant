@@ -3,32 +3,181 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Советник по блогу (прототип)</title>
+    <title>Блог-кабинет</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="layout">
-      <header class="header">
-        <h1>Советник по блогу</h1>
-        <p class="subtitle">
-          Локальный прототип чата в браузере. Позже подключим Telegram-бота.
-        </p>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Блог-кабинет">
+          <span class="brand-mark">БК</span>
+          <span>
+            <span class="brand-title">Блог-кабинет</span>
+            <span class="brand-subtitle">планы, черновики, сохраненные идеи</span>
+          </span>
+        </a>
+
+        <nav class="view-tabs" aria-label="Разделы">
+          <button class="view-tab active" type="button" data-view="chat">Чат</button>
+          <button class="view-tab" type="button" data-view="saved">
+            Сохранено <span id="savedCount">0</span>
+          </button>
+          <button class="view-tab" type="button" data-view="history">
+            История <span id="historyCount">0</span>
+          </button>
+        </nav>
+
+        <div class="topbar-meta" aria-live="polite">
+          <span id="modelStatus">модель: ...</span>
+          <span id="messageCount">0 сообщений</span>
+        </div>
       </header>
 
-      <main class="chat-panel">
-        <div id="log" class="log" aria-live="polite"></div>
-        <form id="form" class="composer">
-          <textarea
-            id="input"
-            rows="3"
-            placeholder="Спросите про тему, структуру поста, контент-план, аудиторию…"
-            required
-          ></textarea>
-          <div class="composer-actions">
-            <button type="button" id="clear" class="btn secondary">Очистить</button>
-            <button type="submit" id="send" class="btn primary">Отправить</button>
-          </div>
-        </form>
+      <main class="workspace">
+        <aside class="side-panel" aria-label="Настройки и сценарии">
+          <section class="tool-group">
+            <div class="section-head">
+              <h2>Сценарии</h2>
+              <button id="newChat" class="text-action" type="button">Новый чат</button>
+            </div>
+            <div class="prompt-stack">
+              <button
+                class="prompt-tile active"
+                type="button"
+                data-prompt="Составь контент-план на 7 дней для блога о [тема]. Для каждого дня дай: тип контента, тему, хук, что публиковать, CTA."
+              >
+                <span>План</span>
+                <small>7 дней</small>
+              </button>
+              <button
+                class="prompt-tile"
+                type="button"
+                data-prompt="Придумай 20 тем для блога о [тема]. Раздели на рубрики: экспертное, личное, продающее, вовлекающее."
+              >
+                <span>Темы</span>
+                <small>20 идей</small>
+              </button>
+              <button
+                class="prompt-tile"
+                type="button"
+                data-prompt="Напиши структуру поста о [тема]: хук, проблема, 3 тезиса, пример, вывод, CTA."
+              >
+                <span>Пост</span>
+                <small>каркас</small>
+              </button>
+              <button
+                class="prompt-tile"
+                type="button"
+                data-prompt="Разбери аудиторию блога о [ниша]: боли, желания, возражения, темы контента и tone of voice."
+              >
+                <span>Аудитория</span>
+                <small>портрет</small>
+              </button>
+              <button
+                class="prompt-tile"
+                type="button"
+                data-prompt="Сделай из этой идеи сценарий короткого видео: хук, кадры, текст на экране, голос, CTA. Идея: [идея]."
+              >
+                <span>Видео</span>
+                <small>Reels/TikTok</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="tool-group">
+            <h2>Тон</h2>
+            <div class="segmented" role="group" aria-label="Тон ответа">
+              <button class="seg-chip active" type="button" data-tone="практичный">Практично</button>
+              <button class="seg-chip" type="button" data-tone="спокойно и экспертно">Экспертно</button>
+              <button class="seg-chip" type="button" data-tone="смело и живо">Живо</button>
+            </div>
+          </section>
+
+          <section class="tool-group">
+            <h2>Глубина</h2>
+            <div class="segmented" role="group" aria-label="Глубина ответа">
+              <button class="seg-chip" type="button" data-depth="кратко">Кратко</button>
+              <button class="seg-chip active" type="button" data-depth="нормально">Нормально</button>
+              <button class="seg-chip" type="button" data-depth="подробно с примерами">Подробно</button>
+            </div>
+          </section>
+
+          <section class="tool-group">
+            <h2>Формат</h2>
+            <select id="formatSelect" class="select-control" aria-label="Формат ответа">
+              <option value="обычным структурированным списком">Список</option>
+              <option value="как готовый пост">Готовый пост</option>
+              <option value="как контент-план по дням">План по дням</option>
+              <option value="как сценарий видео">Сценарий видео</option>
+            </select>
+          </section>
+
+          <section class="tool-group stats-box">
+            <h2>Сводка</h2>
+            <div class="stat-line">
+              <span>Диалог</span>
+              <strong id="activeTitle">Новый диалог</strong>
+            </div>
+            <div class="stat-line">
+              <span>Сохранено</span>
+              <strong id="savedStat">0</strong>
+            </div>
+          </section>
+        </aside>
+
+        <section class="main-panel">
+          <section id="chatView" class="view-pane active" aria-label="Чат">
+            <div id="log" class="log" aria-live="polite">
+              <div id="emptyState" class="empty-state">
+                <p class="kicker">редакционный стол</p>
+                <h1>Собирай блог по частям</h1>
+                <p>Идея, рубрика, черновик, публикация, следующий шаг.</p>
+              </div>
+            </div>
+
+            <form id="form" class="composer">
+              <div class="composer-head">
+                <span id="contextBadge">тон: практичный · глубина: нормально</span>
+                <span id="counter">0 / 4000</span>
+              </div>
+              <textarea
+                id="input"
+                rows="4"
+                maxlength="4000"
+                placeholder="Например: блог фитнес-тренера для женщин 25-40, цель - заявки на консультацию..."
+                required
+              ></textarea>
+              <div class="composer-actions">
+                <button type="button" id="continue" class="btn ghost" hidden>Продолжить</button>
+                <button type="button" id="exportChat" class="btn ghost">Экспорт</button>
+                <button type="button" id="clear" class="btn ghost">Очистить</button>
+                <button type="submit" id="send" class="btn primary">Отправить</button>
+              </div>
+            </form>
+          </section>
+
+          <section id="savedView" class="view-pane library-pane" aria-label="Сохранено">
+            <div class="pane-toolbar">
+              <div>
+                <p class="kicker">сохранено</p>
+                <h1>Лучшие ответы</h1>
+              </div>
+              <input id="savedSearch" class="search-input" type="search" placeholder="Искать в сохраненном" />
+            </div>
+            <div id="savedList" class="item-list"></div>
+          </section>
+
+          <section id="historyView" class="view-pane library-pane" aria-label="История">
+            <div class="pane-toolbar">
+              <div>
+                <p class="kicker">история</p>
+                <h1>Диалоги</h1>
+              </div>
+              <input id="historySearch" class="search-input" type="search" placeholder="Искать диалог" />
+            </div>
+            <div id="historyList" class="item-list"></div>
+          </section>
+        </section>
       </main>
 
       <footer class="footer">

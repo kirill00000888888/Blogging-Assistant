@@ -16,10 +16,10 @@ export function getHfTimeoutMs() {
 }
 
 export function getHfMaxTokens() {
-  /** 512 часто обрывает длинные ответы со списками; 1024 — разумный дефолт для бота. */
+  /** Long content plans need room; Telegram can split long replies safely. */
   return Number(process.env.HF_MAX_TOKENS) > 0
     ? Number(process.env.HF_MAX_TOKENS)
-    : 1024;
+    : 3072;
 }
 
 export function getHfModel() {
@@ -30,6 +30,31 @@ export function getHfModel() {
 
 export function getHfToken() {
   return process.env.HF_TOKEN || process.env.TOKEN || "";
+}
+
+export function formatHfApiError(data, fallback = "Hugging Face API error") {
+  const raw =
+    data?.error?.message ||
+    data?.error ||
+    data?.message ||
+    data?.raw ||
+    fallback;
+  const message = typeof raw === "string" ? raw : fallback;
+
+  if (/sufficient permissions.*Inference Providers/i.test(message)) {
+    return (
+      "Hugging Face токен найден, но у него нет разрешения Inference Providers. " +
+      "Создайте новый токен в Hugging Face Settings > Access Tokens с правом на inference и замените HF_TOKEN в .env."
+    );
+  }
+
+  if (/invalid token|unauthorized|authentication/i.test(message)) {
+    return (
+      "Hugging Face отклонил токен. Проверьте HF_TOKEN в .env или создайте новый токен в настройках Hugging Face."
+    );
+  }
+
+  return message || fallback;
 }
 
 export function formatUpstreamError(err) {
@@ -119,7 +144,7 @@ export async function hfCompleteNonStreaming(messages) {
     if (!hfRes.ok) {
       return {
         ok: false,
-        error: data.error?.message || data.message || "Hugging Face API error",
+        error: formatHfApiError(data),
         status: hfRes.status,
         detail: data,
       };

@@ -67,6 +67,9 @@ const KB_START = "🔄 Старт";
 const KB_CLEAR = "🗑 Очистить";
 
 const MAX_DIALOG_MESSAGES = Number(process.env.TG_MAX_DIALOG_MESSAGES) || 24;
+const TELEGRAM_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+Форматируй ответы для Telegram: не используй Markdown-таблицы, HTML, звездочки для жирного текста и сложную разметку. Контент-планы пиши обычными списками: "День 1", затем пункты "Тип", "Тема", "Что публиковать", "CTA". Если пользователь просит подробный план, дай развернутый ответ, а не 2-3 строки.`;
 
 const sessions = new Map();
 
@@ -97,7 +100,84 @@ function trimSession(entries) {
 }
 
 function buildMessages(history) {
-  return [{ role: "system", content: SYSTEM_PROMPT }, ...history];
+  return [{ role: "system", content: TELEGRAM_SYSTEM_PROMPT }, ...history];
+}
+
+function stripInlineMarkdown(text) {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(^|[\s([{])\*([^*\n]+)\*/g, "$1$2")
+    .replace(/(^|[\s([{])_([^_\n]+)_/g, "$1$2")
+    .replace(/[ \t]+\n/g, "\n");
+}
+
+function parseTableRow(line) {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return null;
+  const normalized = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  const cells = normalized.split("|").map((cell) => stripInlineMarkdown(cell.trim()));
+  return cells.some(Boolean) ? cells : null;
+}
+
+function isTableSeparator(line) {
+  const cells = parseTableRow(line);
+  return Boolean(cells?.length) && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function tableToList(rows) {
+  if (rows.length < 2 || !isTableSeparator(rows[1])) return null;
+
+  const headers = parseTableRow(rows[0]);
+  if (!headers?.length) return null;
+
+  const out = [];
+  const dataRows = rows.slice(2).map(parseTableRow).filter(Boolean);
+  for (const [index, cells] of dataRows.entries()) {
+    const title = cells[0] || `${index + 1}`;
+    out.push(`${headers[0]} ${title}`);
+    for (let i = 1; i < Math.min(headers.length, cells.length); i++) {
+      if (cells[i]) out.push(`- ${headers[i]}: ${cells[i]}`);
+    }
+    out.push("");
+  }
+
+  return out.join("\n").trim();
+}
+
+function normalizeTelegramReply(text) {
+  const lines = text.split(/\r?\n/);
+  const out = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const row = parseTableRow(lines[i]);
+    const nextIsSeparator = i + 1 < lines.length && isTableSeparator(lines[i + 1]);
+
+    if (row && nextIsSeparator) {
+      const tableLines = [lines[i], lines[i + 1]];
+      i += 2;
+      while (i < lines.length && parseTableRow(lines[i])) {
+        tableLines.push(lines[i]);
+        i += 1;
+      }
+      i -= 1;
+
+      const converted = tableToList(tableLines);
+      if (converted) {
+        out.push(converted);
+        continue;
+      }
+      out.push(...tableLines);
+      continue;
+    }
+
+    out.push(lines[i]);
+  }
+
+  return stripInlineMarkdown(out.join("\n"))
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 /** Telegram message limit — split long replies */
@@ -173,10 +253,10 @@ async function main() {
     history.push({ role: "assistant", content: result.content });
     trimSession(history);
 
-    let replyText = result.content;
+    let replyText = normalizeTelegramReply(result.content);
     if (result.truncated) {
       replyText +=
-        "\n\n—\nСообщение могло оборваться из‑за лимита длины ответа. " +
+        "\n\n---\nСообщение могло оборваться из-за лимита длины ответа. " +
         "Напишите «продолжи» или увеличьте HF_MAX_TOKENS в настройках бота.";
     }
 

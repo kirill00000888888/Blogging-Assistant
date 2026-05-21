@@ -6,6 +6,7 @@ import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import {
   SYSTEM_PROMPT,
+  formatHfApiError,
   formatUpstreamError,
   getHfMaxTokens,
   getHfModel,
@@ -31,28 +32,128 @@ const PORT = Number(process.env.PORT) || 3000;
 const HF_MODEL = getHfModel();
 const HF_TIMEOUT_MS = getHfTimeoutMs();
 const HF_MAX_TOKENS = getHfMaxTokens();
-/** Set to 0/false to force non-streaming (more compatible if proxies/Brave break SSE). */
+const CHAT_MAX_MESSAGES = Number(process.env.CHAT_MAX_MESSAGES) || 30;
+const CHAT_MAX_MESSAGE_CHARS =
+  Number(process.env.CHAT_MAX_MESSAGE_CHARS) || 4000;
+const RATE_LIMIT_WINDOW_MS =
+  Number(process.env.RATE_LIMIT_WINDOW_MS) || 60_000;
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 25;
+/** Streaming is opt-in because some HF providers return incompatible SSE chunks. */
 const HF_STREAM =
-  process.env.HF_STREAM !== "0" &&
-  process.env.HF_STREAM !== "false" &&
-  process.env.HF_STREAM !== "off";
+  process.env.HF_STREAM === "1" ||
+  process.env.HF_STREAM === "true" ||
+  process.env.HF_STREAM === "on";
 
 const app = express();
+const rateBuckets = new Map();
+
+if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
+  app.set("trust proxy", 1);
+}
+
 app.use(express.json({ limit: "512kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
+function getClientKey(req) {
+  return req.ip || req.socket.remoteAddress || "local";
+}
+
+function checkRateLimit(req) {
+  if (RATE_LIMIT_MAX <= 0) return { ok: true };
+
+  const now = Date.now();
+  const key = getClientKey(req);
+  const bucket = rateBuckets.get(key);
+
+  if (!bucket || now - bucket.startedAt > RATE_LIMIT_WINDOW_MS) {
+    rateBuckets.set(key, { startedAt: now, count: 1 });
+    return { ok: true };
+  }
+
+  bucket.count += 1;
+  if (bucket.count <= RATE_LIMIT_MAX) return { ok: true };
+
+  const retryAfterMs = Math.max(
+    0,
+    RATE_LIMIT_WINDOW_MS - (now - bucket.startedAt),
+  );
+  return { ok: false, retryAfterMs };
+}
+
+function normalizeIncomingMessages(incoming) {
+  if (!Array.isArray(incoming) || incoming.length === 0) {
+    return { error: "Expected non-empty messages array." };
+  }
+  if (incoming.length > CHAT_MAX_MESSAGES) {
+    return {
+      error: `Too many messages. Maximum is ${CHAT_MAX_MESSAGES}.`,
+    };
+  }
+
+  const messages = [];
+  for (const [index, message] of incoming.entries()) {
+    if (!message || typeof message !== "object") {
+      return { error: `Message ${index + 1} must be an object.` };
+    }
+
+    const role = message.role;
+    if (role !== "user" && role !== "assistant") {
+      return {
+        error: `Message ${index + 1} has unsupported role.`,
+      };
+    }
+
+    const content = String(message.content ?? "").trim();
+    if (!content) {
+      return { error: `Message ${index + 1} is empty.` };
+    }
+    if (content.length > CHAT_MAX_MESSAGE_CHARS) {
+      return {
+        error: `Message ${index + 1} is too long. Maximum is ${CHAT_MAX_MESSAGE_CHARS} characters.`,
+      };
+    }
+
+    messages.push({ role, content });
+  }
+
+  return { messages };
+}
+
+app.get("/api/meta", (_req, res) => {
+  res.json({
+    model: HF_MODEL,
+    maxTokens: HF_MAX_TOKENS,
+    stream: HF_STREAM,
+    maxMessages: CHAT_MAX_MESSAGES,
+    maxMessageChars: CHAT_MAX_MESSAGE_CHARS,
+  });
+});
+
 app.post("/api/chat", async (req, res) => {
+  const limited = checkRateLimit(req);
+  if (!limited.ok) {
+    res.setHeader(
+      "Retry-After",
+      String(Math.ceil(limited.retryAfterMs / 1000)),
+    );
+    res.status(429).json({
+      error: "Слишком много запросов подряд. Подождите немного и попробуйте снова.",
+    });
+    return;
+  }
+
   if (!getHfToken()) {
     res.status(500).json({
       error:
-        "HF_TOKEN is not set. Add it to tokens_env/tokens.env or codebase/.env.",
+        "HF_TOKEN is not set. Add it to .env, tokens_env/tokens.env, or huggingface_token/huggingface_token.env.",
     });
     return;
   }
 
   const { messages: incoming, stream: clientWantsStream } = req.body || {};
-  if (!Array.isArray(incoming) || incoming.length === 0) {
-    res.status(400).json({ error: "Expected non-empty messages array." });
+  const normalized = normalizeIncomingMessages(incoming);
+  if (normalized.error) {
+    res.status(400).json({ error: normalized.error });
     return;
   }
 
@@ -60,10 +161,7 @@ app.post("/api/chat", async (req, res) => {
 
   const messages = [
     { role: "system", content: SYSTEM_PROMPT },
-    ...incoming.map((m) => ({
-      role: m.role,
-      content: String(m.content ?? ""),
-    })),
+    ...normalized.messages,
   ];
 
   const payload = {
@@ -100,8 +198,7 @@ app.post("/api/chat", async (req, res) => {
           data = { raw: text.slice(0, 500) };
         }
         res.status(hfRes.status).json({
-          error:
-            data.error?.message || data.message || "Hugging Face API error",
+          error: formatHfApiError(data),
           detail: data,
         });
         return;
