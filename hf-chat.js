@@ -17,6 +17,7 @@ export const SYSTEM_PROMPT = `Ты — практичный советник п�
 - Не оставляй пустые разделы. Если написал заголовок "Хук:", "Боли:", "CTA:", "Кадр:", "Голос:" или похожий раздел, сразу заполни его конкретным содержанием.
 - Если пользователь просит структуру, сценарий, контент-план или аудиторию, дай все заявленные блоки, без пропусков.
 - Не начинай ответ с уточняющих вопросов, если можно сделать разумные предположения. Сначала дай полезный вариант, а уточнения добавляй только в конце и максимум 2.
+- Если используешь нумерованные разделы, нумеруй их последовательно: 1, 2, 3, 4. Не начинай каждый новый раздел с "1.".
 - Таблицы используй только если пользователь прямо просит таблицу; иначе отвечай списками.
 
 Отвечай ясно и по делу. Поддерживай русский и английский языки пользователя.`;
@@ -183,6 +184,23 @@ function findEmptyImportantHeading(text) {
   return "";
 }
 
+function hasRepeatedOneNumbering(text) {
+  const numbers = text
+    .split(/\r?\n/)
+    .map((line) => line.match(/^\s{0,3}(\d+)\.\s+\S/))
+    .filter(Boolean)
+    .map((match) => Number(match[1]));
+
+  if (numbers.length < 4) return false;
+
+  const oneCount = numbers.filter((number) => number === 1).length;
+  const isSequential = numbers.every(
+    (number, index) => index === 0 || number === numbers[index - 1] + 1,
+  );
+
+  return oneCount >= 3 && !isSequential;
+}
+
 export function getResponseQualityIssue(text, messages = []) {
   if (!text) return "ответ пустой";
 
@@ -195,6 +213,10 @@ export function getResponseQualityIssue(text, messages = []) {
     /^\s*(?:[-*•]\s*)?(?:\*\*)?\s*Tone of voice\s*:/imu.test(text)
   ) {
     return "в русском ответе использован английский заголовок Tone of voice";
+  }
+
+  if (hasRepeatedOneNumbering(text)) {
+    return "несколько нумерованных разделов начинаются с 1 вместо последовательной нумерации";
   }
 
   const emptyHeading = findEmptyImportantHeading(text);
@@ -213,7 +235,8 @@ function buildQualityRetryMessages(messages, issue) {
         `${issue}. Сгенерируй ответ заново. ` +
         "Ответ должен быть строго на языке пользователя, без китайского текста, " +
         "без случайных английских заголовков и без пустых разделов. " +
-        "Все заявленные блоки заполни конкретным содержанием.",
+        "Все заявленные блоки заполни конкретным содержанием. " +
+        "Если есть нумерованные разделы, пронумеруй их последовательно: 1, 2, 3, 4.",
     },
   ];
 }

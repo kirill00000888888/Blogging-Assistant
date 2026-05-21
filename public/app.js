@@ -217,10 +217,14 @@ function renderMarkdown(container, text) {
 
   const lines = text.split(/\r?\n/);
   let listEl = null;
+  let currentNumberedLi = null;
+  let nestedListEl = null;
   let codeEl = null;
 
   function closeList() {
     listEl = null;
+    currentNumberedLi = null;
+    nestedListEl = null;
   }
 
   for (const line of lines) {
@@ -253,8 +257,21 @@ function renderMarkdown(container, text) {
 
     const bullet = line.match(/^\s*[-*]\s+(.+)/);
     if (bullet) {
+      if (listEl?.tagName === "OL" && currentNumberedLi) {
+        if (!nestedListEl || nestedListEl.parentElement !== currentNumberedLi) {
+          nestedListEl = document.createElement("ul");
+          currentNumberedLi.appendChild(nestedListEl);
+        }
+        const li = document.createElement("li");
+        appendInline(li, bullet[1]);
+        nestedListEl.appendChild(li);
+        continue;
+      }
+
       if (!listEl || listEl.tagName !== "UL") {
         listEl = document.createElement("ul");
+        currentNumberedLi = null;
+        nestedListEl = null;
         container.appendChild(listEl);
       }
       const li = document.createElement("li");
@@ -263,26 +280,35 @@ function renderMarkdown(container, text) {
       continue;
     }
 
-    const numbered = line.match(/^\s*\d+\.\s+(.+)/);
+    const numbered = line.match(/^\s*(\d+)\.\s+(.+)/);
     if (numbered) {
       if (!listEl || listEl.tagName !== "OL") {
         listEl = document.createElement("ol");
+        const start = Number(numbered[1]);
+        if (Number.isFinite(start) && start > 1) listEl.start = start;
         container.appendChild(listEl);
       }
       const li = document.createElement("li");
-      appendInline(li, numbered[1]);
+      appendInline(li, numbered[2]);
       listEl.appendChild(li);
+      currentNumberedLi = li;
+      nestedListEl = null;
       continue;
     }
 
-    closeList();
     if (!line.trim()) {
+      if (listEl?.tagName === "OL") {
+        nestedListEl = null;
+        continue;
+      }
+      closeList();
       const spacer = document.createElement("div");
       spacer.className = "line-spacer";
       container.appendChild(spacer);
       continue;
     }
 
+    closeList();
     const p = document.createElement("p");
     appendInline(p, line);
     container.appendChild(p);
