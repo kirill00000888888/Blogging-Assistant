@@ -3,6 +3,7 @@ const CONVERSATIONS_KEY = "blog-workshop.conversations.v2";
 const ACTIVE_CONVERSATION_KEY = "blog-workshop.activeConversation.v2";
 const SAVED_KEY = "blog-workshop.saved.v1";
 const SETTINGS_KEY = "blog-workshop.settings.v1";
+const MAX_REQUEST_MESSAGES = 24;
 
 let maxInputChars = 4000;
 
@@ -440,6 +441,48 @@ function buildOutgoingText(text) {
   ].join("\n");
 }
 
+function compactRequestMessages(messages, outgoing) {
+  const history = messages
+    .slice(0, -1)
+    .filter(
+      (message) =>
+        (message.role === "user" || message.role === "assistant") &&
+        typeof message.content === "string" &&
+        message.content.trim(),
+    )
+    .map((message) => ({
+      role: message.role,
+      content:
+        message.content.length > maxInputChars
+          ? message.content.slice(0, maxInputChars)
+          : message.content,
+    }))
+    .slice(-(MAX_REQUEST_MESSAGES - 1));
+
+  return [
+    ...history,
+    {
+      role: "user",
+      content: outgoing.slice(0, maxInputChars),
+    },
+  ];
+}
+
+async function readErrorMessage(res) {
+  const text = await res.text().catch(() => "");
+  if (!text) return `Ошибка сервера: HTTP ${res.status}`;
+
+  try {
+    const data = JSON.parse(text);
+    if (typeof data.error === "string") return data.error;
+    if (typeof data.message === "string") return data.message;
+  } catch {
+    /* show text fallback below */
+  }
+
+  return `Ошибка сервера: HTTP ${res.status}. ${text.slice(0, 300)}`;
+}
+
 async function sendMessage(text) {
   if (!text.trim()) return;
 
@@ -461,10 +504,7 @@ async function sendMessage(text) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        messages: [
-          ...conversation.messages.slice(0, -1),
-          { role: "user", content: outgoing },
-        ],
+        messages: compactRequestMessages(conversation.messages, outgoing),
         stream: false,
       }),
       signal: AbortSignal.timeout(130_000),
@@ -474,9 +514,7 @@ async function sendMessage(text) {
       conversation.messages.pop();
       touchConversation(conversation);
       persist();
-      const data = await res.json().catch(() => ({}));
-      const err =
-        typeof data.error === "string" ? data.error : "Ошибка от сервера";
+      const err = await readErrorMessage(res);
       makeBubble("assistant", err, { isError: true });
       return;
     }
