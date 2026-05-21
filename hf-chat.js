@@ -7,7 +7,19 @@ export const HF_CHAT_URL =
   process.env.HF_CHAT_URL ||
   "https://router.huggingface.co/v1/chat/completions";
 
-export const SYSTEM_PROMPT = `Ты — практичный советник по ведению блогов. Помогаешь с темой, структурой, стилем, контент-планом, частотой публикаций, работой с аудиторией и организацией процесса. Отвечай ясно и по делу; если не хватает деталей — задай 1–2 уточняющих вопроса в конце. Поддерживай русский и английский языки пользователя.`;
+export const SYSTEM_PROMPT = `Ты — практичный советник по ведению блогов. Помогаешь с темой, структурой, стилем, контент-планом, частотой публикаций, работой с аудиторией и организацией процесса.
+
+Правила качества:
+- Отвечай на языке пользователя. Если пользователь пишет по-русски, весь ответ должен быть на русском.
+- Не вставляй китайский, японский, корейский или случайные английские фрагменты в русский ответ.
+- Английские названия платформ и сервисов допустимы: Instagram, Telegram, TikTok, YouTube, Reels, Shorts, Stories.
+- Термин "Tone of voice" в русских ответах называй "тон коммуникации" или "тон общения".
+- Не оставляй пустые разделы. Если написал заголовок "Хук:", "Боли:", "CTA:", "Кадр:", "Голос:" или похожий раздел, сразу заполни его конкретным содержанием.
+- Если пользователь просит структуру, сценарий, контент-план или аудиторию, дай все заявленные блоки, без пропусков.
+- Не начинай ответ с уточняющих вопросов, если можно сделать разумные предположения. Сначала дай полезный вариант, а уточнения добавляй только в конце и максимум 2.
+- Таблицы используй только если пользователь прямо просит таблицу; иначе отвечай списками.
+
+Отвечай ясно и по делу. Поддерживай русский и английский языки пользователя.`;
 
 export function getHfTimeoutMs() {
   return Number(process.env.HF_TIMEOUT_MS) > 0
@@ -22,6 +34,11 @@ export function getHfMaxTokens() {
     : 3072;
 }
 
+export function getHfTemperature() {
+  const value = Number(process.env.HF_TEMPERATURE);
+  return Number.isFinite(value) && value >= 0 && value <= 2 ? value : 0.45;
+}
+
 export function getHfModel() {
   return (
     process.env.HF_MODEL || "moonshotai/Kimi-K2-Instruct-0905"
@@ -30,6 +47,11 @@ export function getHfModel() {
 
 export function getHfToken() {
   return process.env.HF_TOKEN || process.env.TOKEN || "";
+}
+
+export function shouldRetryQuality() {
+  const value = String(process.env.HF_RETRY_QUALITY ?? "1").toLowerCase();
+  return !["0", "false", "off", "no"].includes(value);
 }
 
 export function formatHfApiError(data, fallback = "Hugging Face API error") {
@@ -90,6 +112,172 @@ export function isAbortOrTimeout(err) {
   return false;
 }
 
+const CJK_TEXT_RE = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/u;
+const RUSSIAN_TEXT_RE = /[А-Яа-яЁё]/u;
+const IMPORTANT_HEADING_LABELS = [
+  "Хук",
+  "Боли",
+  "Проблема",
+  "CTA",
+  "Призыв к действию",
+  "Вывод",
+  "Кадр",
+  "Голос",
+  "Текст на экране",
+  "Тема",
+  "Что публиковать",
+  "Тип",
+  "Тезис 1",
+  "Тезис 2",
+  "Тезис 3",
+  "Пример",
+  "Желания",
+  "Возражения",
+  "Темы контента",
+  "Тон коммуникации",
+  "Тон общения",
+  "Tone of voice",
+];
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const IMPORTANT_HEADING_SOURCE = IMPORTANT_HEADING_LABELS
+  .map(escapeRegExp)
+  .join("|");
+const IMPORTANT_HEADING_ONLY_RE = new RegExp(
+  `^(?:[-*•]\\s*)?(?:\\*\\*)?\\s*(${IMPORTANT_HEADING_SOURCE})\\s*:?\\s*(?:\\*\\*)?\\s*$`,
+  "iu",
+);
+const IMPORTANT_HEADING_START_RE = new RegExp(
+  `^(?:[-*•]\\s*)?(?:\\*\\*)?\\s*(?:${IMPORTANT_HEADING_SOURCE})\\s*:`,
+  "iu",
+);
+
+function userProbablyWritesRussian(messages) {
+  return messages.some(
+    (entry) => entry?.role === "user" && RUSSIAN_TEXT_RE.test(entry.content || ""),
+  );
+}
+
+function findEmptyImportantHeading(text) {
+  const lines = text.split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(IMPORTANT_HEADING_ONLY_RE);
+    if (!match) continue;
+
+    let j = i + 1;
+    while (j < lines.length && !lines[j].trim()) j += 1;
+
+    if (
+      j >= lines.length ||
+      /^[-_*—\s]+$/.test(lines[j].trim()) ||
+      IMPORTANT_HEADING_START_RE.test(lines[j])
+    ) {
+      return match[1];
+    }
+  }
+
+  return "";
+}
+
+export function getResponseQualityIssue(text, messages = []) {
+  if (!text) return "ответ пустой";
+
+  if (CJK_TEXT_RE.test(text)) {
+    return "ответ содержит китайские, японские или корейские символы";
+  }
+
+  if (
+    userProbablyWritesRussian(messages) &&
+    /^\s*(?:[-*•]\s*)?(?:\*\*)?\s*Tone of voice\s*:/imu.test(text)
+  ) {
+    return "в русском ответе использован английский заголовок Tone of voice";
+  }
+
+  const emptyHeading = findEmptyImportantHeading(text);
+  if (emptyHeading) return `раздел "${emptyHeading}" оставлен без содержания`;
+
+  return "";
+}
+
+function buildQualityRetryMessages(messages, issue) {
+  return [
+    ...messages,
+    {
+      role: "user",
+      content:
+        "Предыдущая попытка ответа была отброшена сервером: " +
+        `${issue}. Сгенерируй ответ заново. ` +
+        "Ответ должен быть строго на языке пользователя, без китайского текста, " +
+        "без случайных английских заголовков и без пустых разделов. " +
+        "Все заявленные блоки заполни конкретным содержанием.",
+    },
+  ];
+}
+
+async function requestHfCompletion(payload, token, startedAt, label = "main") {
+  const hfRes = await fetch(HF_CHAT_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(getHfTimeoutMs()),
+  });
+
+  const text = await hfRes.text();
+  console.log(
+    `[hf-chat] ${label} status=${hfRes.status}, ${Date.now() - startedAt}ms, bytes=${text.length}`,
+  );
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return {
+      ok: false,
+      error: "Invalid JSON from Hugging Face router.",
+      status: hfRes.status,
+      detail: text.slice(0, 500),
+    };
+  }
+
+  if (!hfRes.ok) {
+    return {
+      ok: false,
+      error: formatHfApiError(data),
+      status: hfRes.status,
+      detail: data,
+    };
+  }
+
+  const choice = data.choices?.[0];
+  const content = choice?.message?.content;
+  if (typeof content !== "string") {
+    return {
+      ok: false,
+      error: "Unexpected response shape from model.",
+      detail: data,
+    };
+  }
+
+  const truncated = choice?.finish_reason === "length";
+  if (truncated) {
+    console.warn("[hf-chat] reply truncated by max_tokens (finish_reason=length)");
+  }
+
+  return {
+    ok: true,
+    content,
+    model: data.model || payload.model,
+    truncated: Boolean(truncated),
+  };
+}
+
 /**
  * @param {Array<{role: string, content: string}>} messages — must include system as [0] if desired
  */
@@ -109,67 +297,49 @@ export async function hfCompleteNonStreaming(messages) {
     model,
     messages,
     max_tokens,
-    temperature: 0.6,
+    temperature: getHfTemperature(),
   };
 
   const t0 = Date.now();
   try {
-    const hfRes = await fetch(HF_CHAT_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(getHfTimeoutMs()),
-    });
+    const firstResult = await requestHfCompletion(payload, token, t0);
+    if (!firstResult.ok) return firstResult;
 
-    const text = await hfRes.text();
-    console.log(
-      `[hf-chat] status=${hfRes.status}, ${Date.now() - t0}ms, bytes=${text.length}`,
-    );
+    const qualityIssue = getResponseQualityIssue(firstResult.content, messages);
+    if (!qualityIssue || !shouldRetryQuality()) return firstResult;
 
-    let data;
+    console.warn(`[hf-chat] quality retry: ${qualityIssue}`);
     try {
-      data = JSON.parse(text);
-    } catch {
-      return {
-        ok: false,
-        error: "Invalid JSON from Hugging Face router.",
-        status: hfRes.status,
-        detail: text.slice(0, 500),
+      const retryPayload = {
+        ...payload,
+        messages: buildQualityRetryMessages(messages, qualityIssue),
+        temperature: Math.min(getHfTemperature(), 0.35),
       };
-    }
-
-    if (!hfRes.ok) {
-      return {
-        ok: false,
-        error: formatHfApiError(data),
-        status: hfRes.status,
-        detail: data,
-      };
-    }
-
-    const choice = data.choices?.[0];
-    const content = choice?.message?.content;
-    if (typeof content !== "string") {
-      return {
-        ok: false,
-        error: "Unexpected response shape from model.",
-        detail: data,
-      };
-    }
-
-    const truncated = choice?.finish_reason === "length";
-    if (truncated) {
-      console.warn("[hf-chat] reply truncated by max_tokens (finish_reason=length)");
+      const retryResult = await requestHfCompletion(
+        retryPayload,
+        token,
+        t0,
+        "quality-retry",
+      );
+      if (retryResult.ok) {
+        const retryIssue = getResponseQualityIssue(retryResult.content, messages);
+        if (retryIssue) {
+          console.warn(`[hf-chat] quality retry still suspicious: ${retryIssue}`);
+        }
+        return {
+          ...retryResult,
+          qualityRetried: true,
+          ...(retryIssue ? { qualityWarning: retryIssue } : {}),
+        };
+      }
+      console.warn(`[hf-chat] quality retry failed: ${retryResult.error}`);
+    } catch (retryErr) {
+      console.warn("[hf-chat] quality retry request failed:", retryErr);
     }
 
     return {
-      ok: true,
-      content,
-      model: data.model || model,
-      truncated: Boolean(truncated),
+      ...firstResult,
+      qualityWarning: qualityIssue,
     };
   } catch (err) {
     const ms = Date.now() - t0;

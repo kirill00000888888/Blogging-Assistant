@@ -10,6 +10,7 @@ import {
   formatUpstreamError,
   getHfMaxTokens,
   getHfModel,
+  getHfTemperature,
   getHfTimeoutMs,
   getHfToken,
   hfCompleteNonStreaming,
@@ -32,6 +33,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const HF_MODEL = getHfModel();
 const HF_TIMEOUT_MS = getHfTimeoutMs();
 const HF_MAX_TOKENS = getHfMaxTokens();
+const HF_TEMPERATURE = getHfTemperature();
 const CHAT_MAX_MESSAGES = Number(process.env.CHAT_MAX_MESSAGES) || 30;
 const CHAT_MAX_MESSAGE_CHARS =
   Number(process.env.CHAT_MAX_MESSAGE_CHARS) || 4000;
@@ -123,6 +125,7 @@ app.get("/api/meta", (_req, res) => {
   res.json({
     model: HF_MODEL,
     maxTokens: HF_MAX_TOKENS,
+    temperature: HF_TEMPERATURE,
     stream: HF_STREAM,
     maxMessages: CHAT_MAX_MESSAGES,
     maxMessageChars: CHAT_MAX_MESSAGE_CHARS,
@@ -168,7 +171,7 @@ app.post("/api/chat", async (req, res) => {
     model: HF_MODEL,
     messages,
     max_tokens: HF_MAX_TOKENS,
-    temperature: 0.6,
+    temperature: HF_TEMPERATURE,
     ...(wantStream ? { stream: true } : {}),
   };
 
