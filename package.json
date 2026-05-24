@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "start:all": "node start-all.js",
     "dev": "node --watch server.js",
     "telegram": "node telegram-bot.js",
-    "check": "node --check server.js && node --check hf-chat.js && node --check telegram-bot.js && node --check public/app.js"
+    "check": "node --check server.js && node --check hf-chat.js && node --check bot-storage.js && node --check telegram-bot.js && node --check start-all.js && node --check public/app.js"
   },
   "engines": {
     "node": ">=20"

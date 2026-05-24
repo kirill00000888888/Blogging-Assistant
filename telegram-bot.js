@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Telegraf, Markup } from "telegraf";
 import { message } from "telegraf/filters";
+import { createBotStorage, getStoragePath } from "./bot-storage.js";
 import {
   SYSTEM_PROMPT,
   hfCompleteNonStreaming,
@@ -19,6 +20,12 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 
 const BOT_TOKEN =
   process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN || "";
+const ALLOWED_TELEGRAM_IDS = new Set(
+  String(process.env.ALLOWED_TELEGRAM_IDS || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean),
+);
 
 /** HF can take up to HF_TIMEOUT_MS; Telegraf defaults to 90s and kills the handler sooner. */
 function telegrafHandlerTimeoutMs() {
@@ -59,7 +66,31 @@ async function registerBotMenuCommands(bot) {
   const commandList = [
     {
       command: "start",
-      description: "Старт — приветствие и новый диалог",
+      description: "Старт и описание возможностей",
+    },
+    {
+      command: "help",
+      description: "Список команд чат-бота",
+    },
+    {
+      command: "plan",
+      description: "Контент-план для блога",
+    },
+    {
+      command: "ideas",
+      description: "Идеи публикаций",
+    },
+    {
+      command: "post",
+      description: "Структура поста",
+    },
+    {
+      command: "video",
+      description: "Сценарий короткого видео",
+    },
+    {
+      command: "audience",
+      description: "Анализ аудитории блога",
     },
     {
       command: "clear",
@@ -86,6 +117,11 @@ async function registerBotMenuCommands(bot) {
 /** Кнопки над полем ввода (ReplyKeyboard). Текст должен совпадать с проверкой ниже. */
 const KB_START = "🔄 Старт";
 const KB_CLEAR = "🗑 Очистить";
+const KB_PLAN = "📅 План";
+const KB_IDEAS = "💡 Идеи";
+const KB_POST = "✍️ Пост";
+const KB_VIDEO = "🎬 Видео";
+const KB_AUDIENCE = "👥 Аудитория";
 
 const MAX_DIALOG_MESSAGES = Number(process.env.TG_MAX_DIALOG_MESSAGES) || 24;
 const TELEGRAM_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
@@ -96,26 +132,73 @@ const TELEGRAM_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 
 Для Telegram отвечай компактно: если пользователь не просит "подробно", уложись примерно в 1200-2500 знаков, дай самое полезное и в конце предложи написать "продолжи" для расширения.`;
 
-const sessions = new Map();
+const storage = createBotStorage(getStoragePath(__dirname), {
+  maxDialogMessages: MAX_DIALOG_MESSAGES,
+});
+
+function isAllowedTelegramUser(ctx) {
+  if (ALLOWED_TELEGRAM_IDS.size === 0) return true;
+  const ids = [ctx.from?.id, ctx.chat?.id].map((id) => String(id || ""));
+  return ids.some((id) => ALLOWED_TELEGRAM_IDS.has(id));
+}
+
+async function ensureAccess(ctx) {
+  if (isAllowedTelegramUser(ctx)) {
+    await storage.upsertUser(ctx);
+    return true;
+  }
+
+  await ctx.reply(
+    "Доступ к боту ограничен. Передайте администратору ваш Telegram ID: " +
+      `${ctx.from?.id || ctx.chat?.id || "не удалось определить"}.`,
+  );
+  return false;
+}
 
 function mainReplyKeyboard() {
-  return Markup.keyboard([[KB_START, KB_CLEAR]])
+  return Markup.keyboard([
+    [KB_PLAN, KB_IDEAS],
+    [KB_POST, KB_VIDEO],
+    [KB_AUDIENCE],
+    [KB_START, KB_CLEAR],
+  ])
     .resize()
     .persistent();
 }
 
 async function replyWelcome(ctx) {
-  sessions.delete(ctx.chat.id);
+  await storage.clearHistory(ctx.chat.id);
   await ctx.reply(
-    "Привет! Я советник по ведению блогов (@bloggingassistant_bot). " +
-      "Напишите вопрос или тему поста — отвечу кратко и по делу. " +
-      "Кнопки внизу — тот же смысл, что и команды /start и /clear.",
+    "Привет! Я чат-бот для создания и ведения блогов.\n\n" +
+      "Я помогаю составлять контент-планы, искать темы, готовить структуру постов, сценарии коротких видео и разбирать аудиторию.\n\n" +
+      "Команды:\n" +
+      "/plan тема — контент-план\n" +
+      "/ideas тема — идеи публикаций\n" +
+      "/post тема — структура поста\n" +
+      "/video идея — сценарий видео\n" +
+      "/audience ниша — аудитория блога\n" +
+      "/clear — очистить историю\n\n" +
+      "Можно просто написать тему блога обычным сообщением.",
+    mainReplyKeyboard(),
+  );
+}
+
+async function replyHelp(ctx) {
+  await ctx.reply(
+    "Возможности чат-бота:\n\n" +
+      "/plan тема — составить план публикаций на 7 дней\n" +
+      "/ideas тема — придумать 20 идей и рубрик\n" +
+      "/post тема — собрать структуру поста\n" +
+      "/video идея — подготовить сценарий Reels/TikTok/Shorts\n" +
+      "/audience ниша — описать боли, желания и возражения аудитории\n" +
+      "/clear — начать новый диалог\n\n" +
+      "Пример: /plan блог фитнес-тренера для женщин 25-40",
     mainReplyKeyboard(),
   );
 }
 
 async function replyCleared(ctx) {
-  sessions.delete(ctx.chat.id);
+  await storage.clearHistory(ctx.chat.id);
   await ctx.reply("Контекст диалога очищен.", mainReplyKeyboard());
 }
 
@@ -126,6 +209,48 @@ function trimSession(entries) {
 
 function buildMessages(history) {
   return [{ role: "system", content: TELEGRAM_SYSTEM_PROMPT }, ...history];
+}
+
+function commandTemplate(command, value) {
+  const subject = value || "[укажите тему]";
+  const templates = {
+    plan:
+      `Составь контент-план на 7 дней для блога на тему: ${subject}. ` +
+      "Для каждого дня дай: тип контента, тему, хук, что публиковать и CTA.",
+    ideas:
+      `Придумай 20 тем для блога на тему: ${subject}. ` +
+      "Раздели идеи на рубрики: экспертное, личное, продающее и вовлекающее.",
+    post:
+      `Напиши структуру поста на тему: ${subject}. ` +
+      "Дай хук, проблему, 3 тезиса, пример, вывод и CTA.",
+    video:
+      `Сделай сценарий короткого видео по идее: ${subject}. ` +
+      "Дай хук, кадры, текст на экране, голос и CTA.",
+    audience:
+      `Разбери аудиторию блога в нише: ${subject}. ` +
+      "Опиши боли, желания, возражения, подходящие темы контента и тон коммуникации.",
+  };
+  return templates[command] || value;
+}
+
+function parseScenarioText(text) {
+  const normalized = text.trim();
+  const commandMatch = normalized.match(/^\/(plan|ideas|post|video|audience)(?:@\w+)?(?:\s+([\s\S]+))?$/i);
+  if (commandMatch) {
+    return commandTemplate(commandMatch[1].toLowerCase(), (commandMatch[2] || "").trim());
+  }
+
+  const buttonMap = new Map([
+    [KB_PLAN, "plan"],
+    [KB_IDEAS, "ideas"],
+    [KB_POST, "post"],
+    [KB_VIDEO, "video"],
+    [KB_AUDIENCE, "audience"],
+  ]);
+  const buttonCommand = buttonMap.get(normalized);
+  if (buttonCommand) return commandTemplate(buttonCommand, "");
+
+  return normalized;
 }
 
 function stripInlineMarkdown(text) {
@@ -248,18 +373,28 @@ async function main() {
     handlerTimeout: telegrafHandlerTimeoutMs(),
   });
 
+  await storage.init();
+
   bot.start(async (ctx) => {
+    if (!(await ensureAccess(ctx))) return;
     await replyWelcome(ctx);
   });
 
   bot.command("clear", async (ctx) => {
+    if (!(await ensureAccess(ctx))) return;
     await replyCleared(ctx);
+  });
+
+  bot.command("help", async (ctx) => {
+    if (!(await ensureAccess(ctx))) return;
+    await replyHelp(ctx);
   });
 
   bot.on(message("text"), async (ctx) => {
     const chatId = ctx.chat.id;
     const text = (ctx.message.text || "").trim();
     if (!text) return;
+    if (!(await ensureAccess(ctx))) return;
 
     if (text === KB_START || text === "/start") {
       await replyWelcome(ctx);
@@ -269,15 +404,17 @@ async function main() {
       await replyCleared(ctx);
       return;
     }
-
-    let history = sessions.get(chatId);
-    if (!history) {
-      history = [];
-      sessions.set(chatId, history);
+    if (text === "/help") {
+      await replyHelp(ctx);
+      return;
     }
 
-    history.push({ role: "user", content: text });
-    trimSession(history);
+    let history = storage.getHistory(chatId);
+    const outgoingText = parseScenarioText(text);
+    history = await storage.appendMessage(chatId, {
+      role: "user",
+      content: outgoingText,
+    });
 
     const result = await withTyping(ctx, () =>
       hfCompleteNonStreaming(buildMessages(history), {
@@ -289,11 +426,14 @@ async function main() {
     if (!result.ok) {
       await ctx.reply(`Ошибка: ${result.error}`, mainReplyKeyboard());
       history.pop();
+      await storage.setHistory(chatId, history);
       return;
     }
 
-    history.push({ role: "assistant", content: result.content });
-    trimSession(history);
+    history = await storage.appendMessage(chatId, {
+      role: "assistant",
+      content: result.content,
+    });
 
     let replyText = normalizeTelegramReply(result.content);
     if (result.truncated) {

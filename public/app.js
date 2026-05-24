@@ -21,6 +21,8 @@ const counterEl = document.getElementById("counter");
 const contextBadgeEl = document.getElementById("contextBadge");
 const messageCountEl = document.getElementById("messageCount");
 const modelStatusEl = document.getElementById("modelStatus");
+const sessionStatusEl = document.getElementById("sessionStatus");
+const logoutBtn = document.getElementById("logout");
 const savedCountEl = document.getElementById("savedCount");
 const historyCountEl = document.getElementById("historyCount");
 const activeTitleEl = document.getElementById("activeTitle");
@@ -30,6 +32,10 @@ const historyListEl = document.getElementById("historyList");
 const savedSearchEl = document.getElementById("savedSearch");
 const historySearchEl = document.getElementById("historySearch");
 const formatSelectEl = document.getElementById("formatSelect");
+const refreshAdminBtn = document.getElementById("refreshAdmin");
+const adminOverviewEl = document.getElementById("adminOverview");
+const adminScenariosEl = document.getElementById("adminScenarios");
+const adminUsersEl = document.getElementById("adminUsers");
 const promptButtons = document.querySelectorAll("[data-prompt]");
 const toneButtons = document.querySelectorAll("[data-tone]");
 const depthButtons = document.querySelectorAll("[data-depth]");
@@ -92,7 +98,7 @@ function loadConversations() {
       return [
         {
           id: uid("chat"),
-          title: getTitleFromMessages(legacy) || "Первый диалог",
+          title: getTitleFromMessages(legacy) || "Первая тест-сессия",
           messages: legacy.slice(-30),
           createdAt: now,
           updatedAt: now,
@@ -107,7 +113,7 @@ function loadConversations() {
   return [
     {
       id: uid("chat"),
-      title: "Новый диалог",
+      title: "Новая тест-сессия",
       messages: [],
       createdAt: now,
       updatedAt: now,
@@ -147,7 +153,7 @@ function activeConversation() {
   return conversation;
 }
 
-function createConversation(title = "Новый диалог") {
+function createConversation(title = "Новая тест-сессия") {
   const now = Date.now();
   const conversation = {
     id: uid("chat"),
@@ -176,8 +182,8 @@ function getTitleFromMessages(messages) {
 
 function touchConversation(conversation) {
   conversation.updatedAt = Date.now();
-  if (!conversation.title || conversation.title === "Новый диалог") {
-    conversation.title = getTitleFromMessages(conversation.messages) || "Новый диалог";
+  if (!conversation.title || conversation.title === "Новый диалог" || conversation.title === "Новая тест-сессия") {
+    conversation.title = getTitleFromMessages(conversation.messages) || "Новая тест-сессия";
   }
   conversation.messages = conversation.messages.slice(-30);
 }
@@ -359,7 +365,7 @@ function makeBubble(role, text, { isError = false, streaming = false } = {}) {
   const meta = document.createElement("div");
   meta.className = "bubble-meta";
   const label = document.createElement("span");
-  label.textContent = isError ? "ошибка" : role === "user" ? "вы" : "кабинет";
+  label.textContent = isError ? "ошибка" : role === "user" ? "запрос" : "ответ сервера";
   meta.appendChild(label);
 
   const actions = document.createElement("div");
@@ -422,6 +428,7 @@ function renderLog() {
 function setView(view) {
   viewTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.view === view));
   viewPanes.forEach((pane) => pane.classList.toggle("active", pane.id === `${view}View`));
+  if (view === "admin") void renderAdminOverview();
   if (view === "saved") renderSaved();
   if (view === "history") renderHistory();
 }
@@ -442,7 +449,7 @@ function updateChrome() {
   messageCountEl.textContent = `${conversation.messages.length} сообщений`;
   savedCountEl.textContent = savedItems.length;
   historyCountEl.textContent = conversations.length;
-  activeTitleEl.textContent = conversation.title || "Новый диалог";
+  activeTitleEl.textContent = conversation.title || "Новая тест-сессия";
   savedStatEl.textContent = savedItems.length;
   emptyStateEl.hidden = conversation.messages.length > 0;
   continueBtn.hidden = conversation.messages.at(-1)?.role !== "assistant";
@@ -587,7 +594,7 @@ function renderSaved() {
 
   savedListEl.textContent = "";
   if (items.length === 0) {
-    savedListEl.appendChild(emptyCard("Сохраненных ответов пока нет", "Нажми «сохранить» у удачного ответа в чате."));
+    savedListEl.appendChild(emptyCard("Шаблонов пока нет", "Сохрани удачный ответ сервера, чтобы быстро использовать его при проверке."));
     return;
   }
 
@@ -598,7 +605,7 @@ function renderSaved() {
     const head = document.createElement("div");
     head.className = "library-card-head";
     const title = document.createElement("strong");
-    title.textContent = item.sourceTitle || "Ответ";
+    title.textContent = item.sourceTitle || "Шаблон";
     const date = document.createElement("span");
     date.textContent = formatDate(item.createdAt);
     head.append(title, date);
@@ -611,7 +618,7 @@ function renderSaved() {
     actions.className = "library-actions";
     actions.append(
       actionButton("Копировать", (button) => copyText(item.content, button)),
-      actionButton("Вставить в чат", () => {
+      actionButton("Вставить в тест", () => {
         inputEl.value = item.content.slice(0, maxInputChars);
         setView("chat");
         inputEl.focus();
@@ -636,7 +643,7 @@ function renderHistory() {
 
   historyListEl.textContent = "";
   if (items.length === 0) {
-    historyListEl.appendChild(emptyCard("Диалоги не найдены", "Создай новый чат или измени поисковый запрос."));
+    historyListEl.appendChild(emptyCard("Сессии не найдены", "Создай новую тест-сессию или измени поисковый запрос."));
     return;
   }
 
@@ -649,7 +656,7 @@ function renderHistory() {
     const head = document.createElement("div");
     head.className = "library-card-head";
     const title = document.createElement("strong");
-    title.textContent = conversation.title || "Новый диалог";
+    title.textContent = conversation.title || "Новая тест-сессия";
     const date = document.createElement("span");
     date.textContent = formatDate(conversation.updatedAt);
     head.append(title, date);
@@ -658,7 +665,7 @@ function renderHistory() {
     preview.className = "history-preview";
     preview.textContent =
       conversation.messages.find((message) => message.role === "user")?.content ||
-      "Пустой диалог";
+      "Пустая тест-сессия";
 
     const actions = document.createElement("div");
     actions.className = "library-actions";
@@ -697,6 +704,81 @@ function actionButton(label, handler, variant = "") {
   return button;
 }
 
+function yesNo(value) {
+  return value ? "включено" : "выключено";
+}
+
+function adminCard(title, value, text = "") {
+  const card = document.createElement("article");
+  card.className = "admin-card";
+  const label = document.createElement("span");
+  label.textContent = title;
+  const strong = document.createElement("strong");
+  strong.textContent = value;
+  card.append(label, strong);
+  if (text) {
+    const p = document.createElement("p");
+    p.textContent = text;
+    card.appendChild(p);
+  }
+  return card;
+}
+
+async function renderAdminOverview() {
+  adminOverviewEl.textContent = "";
+  adminScenariosEl.textContent = "";
+  adminUsersEl.textContent = "Загрузка...";
+
+  try {
+    const res = await fetch("/api/admin/overview");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    adminOverviewEl.append(
+      adminCard("Назначение", data.product, data.panelRole),
+      adminCard("AI-модуль", data.ai?.model || "не задано", data.aiRole),
+      adminCard("Hugging Face token", data.ai?.tokenConfigured ? "настроен" : "не настроен"),
+      adminCard("Резервный режим", yesNo(data.ai?.localFallback), "Нужен для показа, если внешний AI API недоступен."),
+      adminCard("Лимит сообщений", `${data.web?.maxMessages || 0}`, "Сколько сообщений уходит в контекст запроса."),
+      adminCard("Rate limit", `${data.web?.rateLimitMax || 0} / мин`, "Защита веб-панели от частых запросов."),
+      adminCard("Telegram users", `${data.telegram?.userCount || 0}`, "Автоматически зарегистрированные пользователи бота."),
+      adminCard("Active sessions", `${data.telegram?.activeDialogCount || 0}`, "Пользователи с сохраненной историей."),
+      adminCard("Access mode", data.telegram?.accessMode || "public", "public или restricted через ALLOWED_TELEGRAM_IDS."),
+    );
+
+    for (const scenario of data.scenarios || []) {
+      const card = document.createElement("article");
+      card.className = "scenario-card";
+      const head = document.createElement("div");
+      head.className = "scenario-head";
+      const command = document.createElement("strong");
+      command.textContent = scenario.command;
+      const title = document.createElement("span");
+      title.textContent = scenario.title;
+      head.append(command, title);
+      const description = document.createElement("p");
+      description.textContent = scenario.description;
+      const example = document.createElement("code");
+      example.textContent = scenario.example;
+      card.append(head, description, example);
+      adminScenariosEl.appendChild(card);
+    }
+
+    adminUsersEl.textContent = "";
+    adminUsersEl.append(
+      adminCard("Telegram-пользователи", "без отдельного пароля", data.telegramUsers),
+      adminCard("Масштабирование", "chat_id = отдельная сессия", data.scaling),
+      adminCard("Файл данных", data.telegram?.storageFile || "data/bot-state.json", "Здесь хранятся пользователи и история Telegram-бота."),
+      adminCard("Веб-доступ", `администратор: ${data.web?.login || "admin"}`, "Панель закрыта логином и паролем из .env."),
+    );
+  } catch (err) {
+    adminOverviewEl.appendChild(
+      emptyCard("Не удалось загрузить обзор", err instanceof Error ? err.message : "Ошибка сети"),
+    );
+    adminUsersEl.textContent = "";
+  }
+}
+
 function deleteConversation(id) {
   conversations = conversations.filter((conversation) => conversation.id !== id);
   if (conversations.length === 0) createConversation();
@@ -709,7 +791,7 @@ function deleteConversation(id) {
 function clearConversation() {
   const conversation = activeConversation();
   conversation.messages = [];
-  conversation.title = "Новый диалог";
+  conversation.title = "Новая тест-сессия";
   touchConversation(conversation);
   persist();
   renderLog();
@@ -719,12 +801,12 @@ function clearConversation() {
 function exportConversation() {
   const conversation = activeConversation();
   if (conversation.messages.length === 0) {
-    statusEl.textContent = "В диалоге пока нечего экспортировать.";
+    statusEl.textContent = "В тест-сессии пока нечего экспортировать.";
     return;
   }
 
   const text = conversation.messages
-    .map((message) => `${message.role === "user" ? "Вы" : "Кабинет"}:\n${message.content}`)
+    .map((message) => `${message.role === "user" ? "Запрос" : "Ответ сервера"}:\n${message.content}`)
     .join("\n\n---\n\n");
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -758,6 +840,12 @@ continueBtn.addEventListener("click", async () => {
 });
 
 exportBtn.addEventListener("click", exportConversation);
+refreshAdminBtn.addEventListener("click", () => renderAdminOverview());
+
+logoutBtn.addEventListener("click", async () => {
+  await fetch("/api/logout", { method: "POST" }).catch(() => {});
+  window.location.href = "/login";
+});
 
 inputEl.addEventListener("input", updateChrome);
 savedSearchEl.addEventListener("input", renderSaved);
@@ -814,10 +902,26 @@ async function loadMeta() {
   }
 }
 
+async function loadSession() {
+  try {
+    const res = await fetch("/api/session");
+    if (!res.ok) {
+      window.location.href = "/login";
+      return;
+    }
+    const session = await res.json();
+    sessionStatusEl.textContent = `пользователь: ${session.login || "admin"}`;
+  } catch {
+    sessionStatusEl.textContent = "пользователь: неизвестно";
+  }
+}
+
 formatSelectEl.value = settings.format;
 persist();
 renderLog();
 renderSaved();
 renderHistory();
 updateChrome();
+void loadSession();
 void loadMeta();
+void renderAdminOverview();

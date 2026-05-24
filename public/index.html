@@ -3,98 +3,101 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Блог-кабинет</title>
+    <title>Bot Control Panel</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="/" aria-label="Блог-кабинет">
-          <span class="brand-mark">БК</span>
+        <a class="brand" href="/" aria-label="Bot Control Panel">
+          <span class="brand-mark">SYS</span>
           <span>
-            <span class="brand-title">Блог-кабинет</span>
-            <span class="brand-subtitle">планы, черновики, сохраненные идеи</span>
+            <span class="brand-title">Bot Control Panel</span>
+            <span class="brand-subtitle">диагностика, тесты, контроль</span>
           </span>
         </a>
 
         <nav class="view-tabs" aria-label="Разделы">
-          <button class="view-tab active" type="button" data-view="chat">Чат</button>
+          <button class="view-tab active" type="button" data-view="admin">Диагностика</button>
+          <button class="view-tab" type="button" data-view="chat">Тест API</button>
           <button class="view-tab" type="button" data-view="saved">
-            Сохранено <span id="savedCount">0</span>
+            Шаблоны <span id="savedCount">0</span>
           </button>
           <button class="view-tab" type="button" data-view="history">
-            История <span id="historyCount">0</span>
+            Сессии <span id="historyCount">0</span>
           </button>
         </nav>
 
         <div class="topbar-meta" aria-live="polite">
+          <span id="sessionStatus">пользователь: ...</span>
           <span id="modelStatus">модель: ...</span>
           <span id="messageCount">0 сообщений</span>
+          <button id="logout" class="logout-btn" type="button">Выйти</button>
         </div>
       </header>
 
       <main class="workspace">
-        <aside class="side-panel" aria-label="Настройки и сценарии">
+        <aside class="side-panel" aria-label="Инструменты администратора">
           <section class="tool-group">
             <div class="section-head">
-              <h2>Сценарии</h2>
-              <button id="newChat" class="text-action" type="button">Новый чат</button>
+              <h2>Быстрые проверки</h2>
+              <button id="newChat" class="text-action" type="button">Новая сессия</button>
             </div>
             <div class="prompt-stack">
               <button
                 class="prompt-tile active"
                 type="button"
-                data-prompt="Составь контент-план на 7 дней для блога о [тема]. Для каждого дня дай: тип контента, тему, хук, что публиковать, CTA."
+                data-prompt="/plan тестовая тема для проверки команды"
               >
-                <span>План</span>
-                <small>7 дней</small>
+                <span>/plan</span>
+                <small>команда</small>
               </button>
               <button
                 class="prompt-tile"
                 type="button"
-                data-prompt="Придумай 20 тем для блога о [тема]. Раздели на рубрики: экспертное, личное, продающее, вовлекающее."
+                data-prompt="/ideas тестовая тема для проверки генерации идей"
               >
-                <span>Темы</span>
-                <small>20 идей</small>
+                <span>/ideas</span>
+                <small>команда</small>
               </button>
               <button
                 class="prompt-tile"
                 type="button"
-                data-prompt="Напиши структуру поста о [тема]: хук, проблема, 3 тезиса, пример, вывод, CTA."
+                data-prompt="/post тестовая тема для проверки структуры ответа"
               >
-                <span>Пост</span>
-                <small>каркас</small>
+                <span>/post</span>
+                <small>команда</small>
               </button>
               <button
                 class="prompt-tile"
                 type="button"
-                data-prompt="Разбери аудиторию блога о [ниша]: боли, желания, возражения, темы контента и tone of voice."
+                data-prompt="/audience тестовая ниша для проверки анализа аудитории"
               >
-                <span>Аудитория</span>
-                <small>портрет</small>
+                <span>/audience</span>
+                <small>команда</small>
               </button>
               <button
                 class="prompt-tile"
                 type="button"
-                data-prompt="Сделай из этой идеи сценарий короткого видео: хук, кадры, текст на экране, голос, CTA. Идея: [идея]."
+                data-prompt="/video тестовая идея для проверки сценария"
               >
-                <span>Видео</span>
-                <small>Reels/TikTok</small>
+                <span>/video</span>
+                <small>команда</small>
               </button>
             </div>
           </section>
 
           <section class="tool-group">
-            <h2>Тон</h2>
+            <h2>Режим ответа</h2>
             <div class="segmented" role="group" aria-label="Тон ответа">
-              <button class="seg-chip active" type="button" data-tone="практичный">Практично</button>
-              <button class="seg-chip" type="button" data-tone="спокойно и экспертно">Экспертно</button>
-              <button class="seg-chip" type="button" data-tone="смело и живо">Живо</button>
+              <button class="seg-chip active" type="button" data-tone="технический и краткий">Тех</button>
+              <button class="seg-chip" type="button" data-tone="спокойный демонстрационный">Демо</button>
+              <button class="seg-chip" type="button" data-tone="подробный диагностический">Debug</button>
             </div>
           </section>
 
           <section class="tool-group">
-            <h2>Глубина</h2>
+            <h2>Детализация</h2>
             <div class="segmented" role="group" aria-label="Глубина ответа">
               <button class="seg-chip" type="button" data-depth="кратко">Кратко</button>
               <button class="seg-chip active" type="button" data-depth="нормально">Нормально</button>
@@ -103,35 +106,62 @@
           </section>
 
           <section class="tool-group">
-            <h2>Формат</h2>
+            <h2>Формат теста</h2>
             <select id="formatSelect" class="select-control" aria-label="Формат ответа">
-              <option value="обычным структурированным списком">Список</option>
-              <option value="как готовый пост">Готовый пост</option>
-              <option value="как контент-план по дням">План по дням</option>
-              <option value="как сценарий видео">Сценарий видео</option>
+              <option value="как структурированный ответ для проверки API">API ответ</option>
+              <option value="как ответ Telegram-бота">Telegram</option>
+              <option value="как краткий диагностический отчет">Диагностика</option>
+              <option value="как демонстрационный ответ для защиты">Демо</option>
             </select>
           </section>
 
           <section class="tool-group stats-box">
-            <h2>Сводка</h2>
+            <h2>Текущая сессия</h2>
             <div class="stat-line">
-              <span>Диалог</span>
+              <span>ID</span>
               <strong id="activeTitle">Новый диалог</strong>
             </div>
             <div class="stat-line">
-              <span>Сохранено</span>
+              <span>Шаблоны</span>
               <strong id="savedStat">0</strong>
             </div>
           </section>
         </aside>
 
         <section class="main-panel">
-          <section id="chatView" class="view-pane active" aria-label="Чат">
+          <section id="adminView" class="view-pane library-pane active" aria-label="Обзор системы">
+            <div class="pane-toolbar">
+              <div>
+                <p class="kicker">system monitor</p>
+                <h1>Панель ремонта бота</h1>
+              </div>
+              <button id="refreshAdmin" class="mini-btn" type="button">Обновить</button>
+            </div>
+            <div class="admin-dashboard">
+              <section class="admin-grid" id="adminOverview"></section>
+              <section class="admin-section">
+                <div class="admin-section-head">
+                  <p class="kicker">telegram commands</p>
+                  <strong>Проверяемые команды</strong>
+                </div>
+                <div id="adminScenarios" class="scenario-grid"></div>
+              </section>
+              <section class="admin-section">
+                <div class="admin-section-head">
+                  <p class="kicker">access model</p>
+                  <strong>Пользователи и доступ</strong>
+                </div>
+                <div id="adminUsers" class="admin-note"></div>
+              </section>
+            </div>
+          </section>
+
+          <section id="chatView" class="view-pane" aria-label="Тест API">
             <div id="log" class="log" aria-live="polite">
               <div id="emptyState" class="empty-state">
-                <p class="kicker">редакционный стол</p>
-                <h1>Собирай блог по частям</h1>
-                <p>Идея, рубрика, черновик, публикация, следующий шаг.</p>
+                <p class="kicker">api sandbox</p>
+                <h1>Проверка ответа модели</h1>
+                <p>Отправь команду или текст и проверь, что сервер, fallback и формат ответа работают.</p>
               </div>
             </div>
 
@@ -144,14 +174,14 @@
                 id="input"
                 rows="4"
                 maxlength="4000"
-                placeholder="Например: блог фитнес-тренера для женщин 25-40, цель - заявки на консультацию..."
+                placeholder="Например: /plan тестовая тема или обычный запрос для проверки API..."
                 required
               ></textarea>
               <div class="composer-actions">
                 <button type="button" id="continue" class="btn ghost" hidden>Продолжить</button>
-                <button type="button" id="exportChat" class="btn ghost">Экспорт</button>
+                <button type="button" id="exportChat" class="btn ghost">Экспорт лога</button>
                 <button type="button" id="clear" class="btn ghost">Очистить</button>
-                <button type="submit" id="send" class="btn primary">Отправить</button>
+                <button type="submit" id="send" class="btn primary">Запустить тест</button>
               </div>
             </form>
           </section>
@@ -159,10 +189,10 @@
           <section id="savedView" class="view-pane library-pane" aria-label="Сохранено">
             <div class="pane-toolbar">
               <div>
-                <p class="kicker">сохранено</p>
-                <h1>Лучшие ответы</h1>
+                <p class="kicker">saved payloads</p>
+                <h1>Шаблоны ответов</h1>
               </div>
-              <input id="savedSearch" class="search-input" type="search" placeholder="Искать в сохраненном" />
+              <input id="savedSearch" class="search-input" type="search" placeholder="Искать шаблон" />
             </div>
             <div id="savedList" class="item-list"></div>
           </section>
@@ -170,10 +200,10 @@
           <section id="historyView" class="view-pane library-pane" aria-label="История">
             <div class="pane-toolbar">
               <div>
-                <p class="kicker">история</p>
-                <h1>Диалоги</h1>
+                <p class="kicker">test sessions</p>
+                <h1>Журнал тестов</h1>
               </div>
-              <input id="historySearch" class="search-input" type="search" placeholder="Искать диалог" />
+              <input id="historySearch" class="search-input" type="search" placeholder="Искать сессию" />
             </div>
             <div id="historyList" class="item-list"></div>
           </section>
